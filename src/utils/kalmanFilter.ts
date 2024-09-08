@@ -12,7 +12,7 @@ interface ILocation {
     private variance: number;
   
     constructor() {
-      this.Q_metres_per_second = 3;
+      this.Q_metres_per_second = 4;
       this.R_metres = 1;
       this.time_step = 1;
       this.lat = 0;

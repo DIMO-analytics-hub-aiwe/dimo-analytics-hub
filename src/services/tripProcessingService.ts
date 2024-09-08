@@ -3,7 +3,7 @@ import MapboxService from './mapboxService';
 import Trip, { ITripDocument } from '../models/Trip';
 import KalmanFilter from '../utils/kalmanFilter';
 import Vehicle, { IVehicle, IVehicleDocument } from '../models/Vehicle';
-
+import {RateLimiter} from '../utils/rateLimiter.js';
 
 interface ILocation {
     timestamp: string;
@@ -44,16 +44,18 @@ interface ILocation {
 
 class TripProcessingService {
     private kalmanFilter: KalmanFilter;
+    private rateLimiter: RateLimiter;
 
-    constructor() {
+    constructor(rateLimiter: RateLimiter) {
       this.kalmanFilter = new KalmanFilter();
+      this.rateLimiter = rateLimiter;
     }
   
     private async processLocations(adjustedLocations: ILocation[]): Promise<{ speeds: ISpeed[], routeInfos: RouteInfo[] }> {
       const speeds: ISpeed[] = [];
       const routeInfos: RouteInfo[] = [];
-      const windowSize = 5;
-
+      const windowSize = 10;
+      var skipFirstRound = true;
       for (let i = 0; i < adjustedLocations.length - 1; i++) {
         const startTime = new Date(adjustedLocations[i].timestamp).getTime();
         let endIndex = i + 1;
@@ -66,28 +68,33 @@ class TripProcessingService {
         if (endIndex >= adjustedLocations.length) {
           endIndex = adjustedLocations.length - 1;
         }
-
+      
         const endTime = new Date(adjustedLocations[endIndex].timestamp).getTime();
         const timeDiff = (endTime - startTime) / 1000;
         const distance = this.calculateDistance(adjustedLocations[i], adjustedLocations[endIndex]);
-        const speed = distance / timeDiff * 3.6; 
-        
-        const routeInfo = await MapboxService.getRouteInfo(
-          adjustedLocations[i],
-          adjustedLocations[endIndex]
-        );
+        const speed = distance / timeDiff; 
+        if(skipFirstRound || speed > 60 || distance < 2) {
+          skipFirstRound = false;
+          i = endIndex - 1;
+          continue;
+        }
+        const routeInfo =  await this.rateLimiter.execute(() => {
+          return MapboxService.getRouteInfo(
+            adjustedLocations[i],
+            adjustedLocations[endIndex]
+          );
+        });
         routeInfos.push(routeInfo);
         const validSpeedLimits = routeInfo.segmentSpeeds.filter(speed => speed !== null) as number[];
         const avgSpeed = validSpeedLimits.length > 0 ? validSpeedLimits.reduce((sum, speed) => sum + speed, 0) / validSpeedLimits.length : 0;
         const maxSpeedLimits = routeInfo.speedLimits.filter(speed => speed !== null) as number[];
         const maxSpeed = maxSpeedLimits.length > 0 ? maxSpeedLimits.reduce((sum, speed) => sum + speed, 0) / maxSpeedLimits.length : 0;
 
-
         speeds.push({
           timestamp: adjustedLocations[i].timestamp,
           speed: speed,
           averageDriverSpeed: avgSpeed,
-          allowedSpeed: maxSpeed, 
+          allowedSpeed: 0, // isNaN(maxSpeed) ? Number.MAX_VALUE : maxSpeed, 
           distance: distance
         });
 
@@ -98,18 +105,28 @@ class TripProcessingService {
       return { speeds, routeInfos };
     }
 
-    async processTrip(token: { headers: Record<string, string> }, vehicleId: string, trip: any): Promise<ITripDocument> {
+    async processTrip(token: any, vehicleId: number, trip: any): Promise<ITripDocument | null> {
       try {
         const telemetryData = await DimoService.getTripTelemetry(token, vehicleId, trip.start.time, trip.end.time);
         
+        const signals = telemetryData.data.signals;
+
+        if(signals == null || signals.length == 0) {
+          return null;
+        }
+
         const adjustedLocations = this.applyKalmanFilter(telemetryData.data.signals);
         
         const { speeds, routeInfos } = await this.processLocations(adjustedLocations);
         
         
         const tripMetrics = this.calculateTripMetrics(speeds, routeInfos);
-        
-        const savedTrip = await this.saveTripData(vehicleId, trip, adjustedLocations, speeds, tripMetrics);
+
+        if(tripMetrics.distance < 1) {
+          return null;
+        }
+          
+        const savedTrip = await this.saveTripData(vehicleId.toString(), trip, adjustedLocations, speeds, tripMetrics);
         
         await this.updateVehicleStats(vehicleId, savedTrip);
         
@@ -187,8 +204,8 @@ class TripProcessingService {
   }
 
   private calculateSpeedAdherence(speeds: ISpeed[]): number {
-    const speedingInstances = speeds.filter(speed => speed.speed > speed.allowedSpeed).length;
-    return (speedingInstances / speeds.length) * 100;
+    const speedingInstances = speeds.filter(speed => speed.speed > speed.averageDriverSpeed).length;
+    return (speedingInstances*1.0/ speeds.length) * 100;
   }
 
   private calculateScore(hardBrakeCount: number, speedAdherencePercentage: number, distance: number): { hardBraking: string; speedAdherence: string; overall: string } {
@@ -238,6 +255,7 @@ class TripProcessingService {
 
   private async saveTripData(vehicleId: string, tripData: any, locations: ILocation[], speeds: ISpeed[], metrics: ITripMetrics): Promise<ITripDocument> {
     const trip = new Trip({
+      dimoVehicleId: vehicleId,
       tripId: tripData.id,
       vehicleId: vehicleId,
       startTime: tripData.start.time,
@@ -249,22 +267,21 @@ class TripProcessingService {
     return await trip.save();
   }
 
-  private async updateVehicleStats(vehicleId: string, trip: ITripDocument): Promise<void> {
+  //write function to update vehicle stats based on the all trips
+  async updateVehicleStats(vehicleId: number): Promise<void> {
     const vehicle = await Vehicle.findOne({ dimoVehicleId: vehicleId });
     if (!vehicle) {
       throw new Error('Vehicle not found');
     }
+    const trips = await Trip.find({ dimoVehicleId: vehicleId });
     
-    vehicle.totalTrips += 1;
-    vehicle.totalDistance += trip.distance;
-    vehicle.averageSpeed = (vehicle.averageSpeed * (vehicle.totalTrips - 1) + trip.averageSpeed) / vehicle.totalTrips;
-
-    // Update overall scores
-    const allVehicleTrips = await Trip.find({ dimoVehicleId: vehicleId });
-    vehicle.overallScore = this.calculateOverallVehicleScore(allVehicleTrips);
+    vehicle.totalTrips = trips.length;
+    vehicle.totalDistance = trips.reduce((sum, trip) => sum + trip.distance, 0); 
+    vehicle.averageSpeed = trips.reduce((sum, trip) => sum + trip.averageSpeed, 0) / trips.length;
+    vehicle.overallScore = this.calculateOverallVehicleScore(trips);
 
     await vehicle.save();
-  }
+  } 
 
   async initVehicleStats(vehicleId: string): Promise<void> {
     const vehicle = await Vehicle.findOne({ dimoVehicleId: vehicleId });
@@ -307,8 +324,8 @@ class TripProcessingService {
       this.scoreToNumber(consistencyScore) +
       this.scoreToNumber(timeOfDayScore) +
       this.scoreToNumber(hardBrakingScore) +
-      this.scoreToNumber(speedAdherenceScore) * 2  // Double weight for speed adherence
-    ) / 5;  // Divide by 5 due to the double weight of speed adherence
+      this.scoreToNumber(speedAdherenceScore) * 3  // Double weight for speed adherence
+    ) / 6;  // Divide by 8 due to the double weight of speed adherence
 
     return {
       consistencyScore,
@@ -335,7 +352,10 @@ class TripProcessingService {
 
   private getTimeOfDayScore(trips: ITripDocument[]): string {
     const nightTrips = trips.filter(trip => {
-      const startHour = new Date(trip.startTime).getHours();
+      const date = new Date(trip.startTime);
+      // Convert to EDT (UTC-4)
+      const edtDate = new Date(date.toLocaleString("en-US", {timeZone: "America/New_York"}));
+      const startHour = edtDate.getHours();
       return startHour >= 23 || startHour < 4;
     });
     const nightTripPercentage = (nightTrips.length / trips.length) * 100;
@@ -346,5 +366,5 @@ class TripProcessingService {
     return 'Poor';
   }
 }
-
-export default new TripProcessingService();
+const rateLimiter = new RateLimiter(295, 60000);
+export default new TripProcessingService(rateLimiter);

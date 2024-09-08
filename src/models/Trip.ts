@@ -32,7 +32,7 @@ export interface ITripDocument extends ITrip, Document {}
 
 const TripSchema: Schema = new Schema({
   tripId: { type: String, required: true },
-  dimoVehicleId: { type: Schema.Types.ObjectId, ref: 'Vehicle', required: true },
+  dimoVehicleId: { type: String, ref: 'Vehicle', required: true },
   startTime: { type: Date, required: true },
   endTime: { type: Date, required: true },
   locations: [{

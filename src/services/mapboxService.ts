@@ -1,15 +1,9 @@
 import axios, { AxiosResponse } from 'axios';
+import dotenv from 'dotenv';
 
 interface ILocation {
   latitude: number;
   longitude: number;
-}
-
-interface ISpeed {
-  timestamp: string;
-  speed: number;
-  allowedSpeed: number;
-  distance: number;
 }
 
 interface MapboxRouteResponse {
@@ -47,6 +41,8 @@ interface RouteInfo {
   geometry: any;
 }
 
+dotenv.config();
+
 export class MapboxService {
   private apiUrl: string;
   private accessToken: string;
@@ -71,7 +67,6 @@ export class MapboxService {
           }
         }
       );
-      console.log(response.data)
       return this.processRouteResponse(response.data);
     } catch (error) {
       console.error('Error fetching route info from Mapbox API:', error);

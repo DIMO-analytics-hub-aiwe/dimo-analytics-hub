@@ -11,6 +11,10 @@
   },
   "scripts": {
     "init-db": "ts-node src/scripts/initDb.ts",
-    "start":"node --experimental-specifier-resolution=node --loader ts-node/esm src/app.ts"
+    "start": "node --experimental-specifier-resolution=node --loader ts-node/esm src/app.ts"
+  },
+  "dependencies": {
+    "@types/ratelimiter": "^3.4.6",
+    "limiter": "^2.1.0"
   }
 }

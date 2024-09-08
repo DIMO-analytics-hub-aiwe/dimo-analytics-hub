@@ -19,39 +19,36 @@ interface DimoTelemetryResponse {
 class DimoService {
 
 
-  async queryTelemetry(token: { headers: any }, query: string): Promise<DimoTelemetryResponse> {
+  async queryTelemetry(token: any, query: string): Promise<DimoTelemetryResponse> {
     try {
+      console.log(token);
+      console.log(query);
       const response = await dimo.telemetry.query({
         ...token,
-        query: `
-          query {
-            some_valid_GraphQL_query
-          }
-        `
+        query: query
       });
       console.log(response);
       return response as unknown as DimoTelemetryResponse;
     } catch (error) {
+      //print error body
       console.error('Error querying telemetry from DIMO API:', error);
       throw error;
     }
   }
 
-  async getTripTelemetry(token: { headers: Record<string, string> }, vehicleId: string, startTime: string, endTime: string): Promise<DimoTelemetryResponse> {
-    const query = `
-      query {
+  async getTripTelemetry(token: any, vehicleId: number, startTime: string, endTime: string): Promise<DimoTelemetryResponse> {
+    console.log(startTime, endTime);
+    const query = `{
         signals(
-          tokenId: "${vehicleId}", 
+          tokenId: ${vehicleId}, 
           interval: "1s",
-          from: "${startTime}", 
-          to: "${endTime}"
+          from: "${startTime}", to: "${endTime}"
         ) {
           currentLocationLatitude(agg: MED)
           currentLocationLongitude(agg: MED)
           timestamp
         }
-      }
-    `;
+      }`;
     return this.queryTelemetry(token, query);
   }
 }

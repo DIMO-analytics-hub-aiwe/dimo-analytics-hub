@@ -19,11 +19,11 @@ export interface IVehicleDocument extends IVehicle, Document {}
 const VehicleSchema: Schema = new Schema({
   dimoVehicleId: { type: String, required: true, unique: true },
   overallScore: {
-    consistencyScore: { type: String, enum: ['Excellent', 'Good', 'Average', 'Poor'] },
-    timeOfDayScore: { type: String, enum: ['Excellent', 'Good', 'Average', 'Poor'] },
-    hardBrakingScore: { type: String, enum: ['Excellent', 'Good', 'Average', 'Poor'] },
-    speedAdherenceScore: { type: String, enum: ['Excellent', 'Good', 'Average', 'Poor'] },
-    overallClassification: { type: String, enum: ['Class A', 'Class B', 'Class C', 'Class D'] }
+    consistencyScore: { type: String, enum: ['Excellent', 'Good', 'Average', 'Poor', 'Unknown'], default: 'Unknown' },
+    timeOfDayScore: { type: String, enum: ['Excellent', 'Good', 'Average', 'Poor', 'Unknown'], default: 'Unknown' },
+    hardBrakingScore: { type: String, enum: ['Excellent', 'Good', 'Average', 'Poor', 'Unknown'], default: 'Unknown' },
+    speedAdherenceScore: { type: String, enum: ['Excellent', 'Good', 'Average', 'Poor', 'Unknown'], default: 'Unknown' },
+    overallClassification: { type: String, enum: ['Class A', 'Class B', 'Class C', 'Class D', 'Unknown'], default: 'Unknown' }
   },
   totalTrips: { type: Number, default: 0 },
   totalDistance: { type: Number, default: 0 },
