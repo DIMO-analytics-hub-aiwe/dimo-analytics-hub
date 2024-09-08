@@ -21,7 +21,7 @@ router.post('/process', authMiddleware, async (req: Request, res: Response) => {
     const processedTrips = await Promise.all(first10Trips.map(async (trip: any) => {
       return await TripProcessingService.processTrip(auth, vehicleId, trip);
     }));
-    console.log(processedTrips);
+    await TripProcessingService.updateVehicleStats(vehicleId);
     res.json(processedTrips);
   } catch (error) {
     console.error('Error during processing:', error);

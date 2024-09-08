@@ -128,8 +128,6 @@ class TripProcessingService {
           
         const savedTrip = await this.saveTripData(vehicleId.toString(), trip, adjustedLocations, speeds, tripMetrics);
         
-        await this.updateVehicleStats(vehicleId, savedTrip);
-        
         return savedTrip;
       } catch (error) {
         console.error('Ошибка при обработке поездки:', error);
